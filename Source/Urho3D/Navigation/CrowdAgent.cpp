@@ -148,25 +148,6 @@ void CrowdAgent::ApplyAttributes()
     }
 }
 
-void CrowdAgent::OnNodeSet(Node* node)
-{
-    if (node)
-    {
-        Scene* scene = GetScene();
-        if (scene)
-        {
-            if (scene == node)
-                LOGERROR("CrowdAgent should not be created to the root scene node");
-            crowdManager_ = scene->GetOrCreateComponent<CrowdManager>();
-            AddAgentToCrowd();
-        }
-
-        node->AddListener(this);
-    }
-    else
-        RemoveAgentFromCrowd();
-}
-
 void CrowdAgent::OnSetEnabled()
 {
     bool enabled = IsEnabledEffective();
@@ -201,11 +182,6 @@ void CrowdAgent::DrawDebugGeometry(DebugRenderer* debug, bool depthTest)
         debug->AddLine(pos + 0.25f * agentHeightVec, pos + desiredVel + 0.25f * agentHeightVec, Color::RED, depthTest);
         debug->AddCylinder(pos, radius_, height_, HasArrived() ? Color::GREEN : Color::WHITE, depthTest);
     }
-}
-
-const dtCrowdAgent* CrowdAgent::GetDetourCrowdAgent() const
-{
-    return IsInCrowd() ? crowdManager_->GetCrowdAgent(agentCrowdId_) : 0;
 }
 
 void CrowdAgent::UpdateParameters(unsigned scope)
@@ -313,7 +289,7 @@ int CrowdAgent::AddAgentToCrowd(bool force)
             map[P_CROWD_AGENT_STATE] = previousAgentState_;
             map[P_POSITION] = GetPosition();
             map[P_VELOCITY] = GetActualVelocity();
-            SendEvent(E_CROWD_AGENT_FAILURE, map);
+            crowdManager_->SendEvent(E_CROWD_AGENT_FAILURE, map);
 
             // Reevaluate states as handling of event may have resulted in changes
             previousAgentState_ = GetAgentState();
@@ -547,7 +523,7 @@ void CrowdAgent::OnCrowdUpdate(dtCrowdAgent* ag, float dt)
             map[P_VELOCITY] = newVel;
             map[P_ARRIVED] = HasArrived();
             map[P_TIMESTEP] = dt;
-            SendEvent(E_CROWD_AGENT_REPOSITION, map);
+            crowdManager_->SendEvent(E_CROWD_AGENT_REPOSITION, map);
 
             if (updateNodePosition_)
             {
@@ -571,7 +547,7 @@ void CrowdAgent::OnCrowdUpdate(dtCrowdAgent* ag, float dt)
             map[P_CROWD_AGENT_STATE] = newAgentState;
             map[P_POSITION] = newPos;
             map[P_VELOCITY] = newVel;
-            SendEvent(E_CROWD_AGENT_STATE_CHANGED, map);
+            crowdManager_->SendEvent(E_CROWD_AGENT_STATE_CHANGED, map);
 
             // Send a failure event if either state is a failed status
             if (newAgentState == CA_STATE_INVALID || newTargetState == CA_TARGET_FAILED)
@@ -583,7 +559,7 @@ void CrowdAgent::OnCrowdUpdate(dtCrowdAgent* ag, float dt)
                 map[P_CROWD_AGENT_STATE] = newAgentState;
                 map[P_POSITION] = newPos;
                 map[P_VELOCITY] = newVel;
-                SendEvent(E_CROWD_AGENT_FAILURE, map);
+                crowdManager_->SendEvent(E_CROWD_AGENT_FAILURE, map);
             }
 
             // State may have been altered during the handling of the event
@@ -591,6 +567,25 @@ void CrowdAgent::OnCrowdUpdate(dtCrowdAgent* ag, float dt)
             previousTargetState_ = GetTargetState();
         }
     }
+}
+
+void CrowdAgent::OnNodeSet(Node* node)
+{
+    if (node)
+    {
+        Scene* scene = GetScene();
+        if (scene)
+        {
+            if (scene == node)
+                LOGERROR("CrowdAgent should not be created to the root scene node");
+            crowdManager_ = scene->GetOrCreateComponent<CrowdManager>();
+            AddAgentToCrowd();
+        }
+
+        node->AddListener(this);
+    }
+    else
+        RemoveAgentFromCrowd();
 }
 
 void CrowdAgent::OnMarkedDirty(Node* node)
@@ -607,6 +602,11 @@ void CrowdAgent::OnMarkedDirty(Node* node)
                 agent->state = CA_STATE_WALKING;
         }
     }
+}
+
+const dtCrowdAgent* CrowdAgent::GetDetourCrowdAgent() const
+{
+    return IsInCrowd() ? crowdManager_->GetCrowdAgent(agentCrowdId_) : 0;
 }
 
 }

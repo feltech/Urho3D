@@ -57,7 +57,8 @@ CrowdManager::CrowdManager(Context* context) :
     Component(context),
     crowd_(0),
     maxAgents_(DEFAULT_MAX_AGENTS),
-    maxAgentRadius_(DEFAULT_MAX_AGENT_RADIUS)
+    maxAgentRadius_(DEFAULT_MAX_AGENT_RADIUS),
+    navigationMeshId_(0)
 {
 }
 
@@ -73,7 +74,8 @@ void CrowdManager::RegisterObject(Context* context)
 
     ATTRIBUTE("Max Agents", unsigned, maxAgents_, DEFAULT_MAX_AGENTS, AM_DEFAULT);
     ATTRIBUTE("Max Agent Radius", float, maxAgentRadius_, DEFAULT_MAX_AGENT_RADIUS, AM_DEFAULT);
-    //TODO: add attribute for navmesh
+    ATTRIBUTE("Navigation Mesh", unsigned, navigationMeshId_, 0, AM_DEFAULT | AM_COMPONENTID);
+    // TODO: add attributes for crowd filter type and avoidance parameters configuration
 }
 
 void CrowdManager::ApplyAttributes()
@@ -82,8 +84,18 @@ void CrowdManager::ApplyAttributes()
     maxAgents_ = Max(1, maxAgents_);
     maxAgentRadius_ = Max(0.f, maxAgentRadius_);
 
+    Scene* scene = GetScene();
+    if (scene && navigationMeshId_)
+    {
+        NavigationMesh* navMesh = dynamic_cast<NavigationMesh*>(scene->GetComponent(navigationMeshId_));
+        if (navMesh)
+            navigationMesh_ = navMesh;
+    }
+    navigationMeshId_ = navigationMesh_ ? navigationMesh_->GetID() : 0;
+
+    // If the Detour crowd initialization parameters have changed then recreate it
     if (crowd_ && (crowd_->getAgentCount() != maxAgents_ || crowd_->getMaxAgentRadius() != (maxAgentRadius_ > 0.f ? maxAgentRadius_ : navigationMesh_->GetAgentRadius())))
-        CreateCrowd(true);
+        CreateCrowd();
 }
 
 void CrowdManager::DrawDebugGeometry(DebugRenderer* debug, bool depthTest)
@@ -156,8 +168,9 @@ void CrowdManager::SetCrowdTarget(const Vector3& position, Node* node)
     Vector3 moveTarget(position);
     for (unsigned i = 0; i < agents.Size(); ++i)
     {
-        CrowdAgent* agent = agents[i];
         // Give application a chance to determine the desired crowd formation when they reach the target position
+        CrowdAgent* agent = agents[i];
+
         using namespace CrowdAgentFormation;
 
         VariantMap& map = GetEventDataMap();
@@ -199,7 +212,7 @@ void CrowdManager::SetMaxAgents(unsigned maxAgents)
     if (maxAgents != maxAgents_ && maxAgents > 0)
     {
         maxAgents_ = maxAgents;
-        CreateCrowd(true);
+        CreateCrowd();
         MarkNetworkUpdate();
     }
 }
@@ -209,7 +222,7 @@ void CrowdManager::SetMaxAgentRadius(float maxAgentRadius)
     if (maxAgentRadius != maxAgentRadius_ && maxAgentRadius > 0.f)
     {
         maxAgentRadius_ = maxAgentRadius;
-        CreateCrowd(true);
+        CreateCrowd();
         MarkNetworkUpdate();
     }
 }
@@ -219,7 +232,8 @@ void CrowdManager::SetNavigationMesh(NavigationMesh* navMesh)
     if (navMesh != navigationMesh_ && navMesh)
     {
         navigationMesh_ = navMesh;
-        CreateCrowd(true);
+        navigationMeshId_ = navMesh->GetID();
+        CreateCrowd();
         MarkNetworkUpdate();
     }
 }
@@ -391,6 +405,27 @@ void CrowdManager::RemoveAgent(CrowdAgent* agent)
     crowd_->removeAgent(agent->GetAgentCrowdId());
 }
 
+void CrowdManager::OnNodeSet(Node* node)
+{
+    // Subscribe to the scene subsystem update, which will trigger the crowd update step, and grab a reference
+    // to the scene's NavigationMesh
+    if (node)
+    {
+        SubscribeToEvent(node, E_SCENESUBSYSTEMUPDATE, HANDLER(CrowdManager, HandleSceneSubsystemUpdate));
+        SubscribeToEvent(node, E_NAVIGATION_MESH_REBUILT, HANDLER(CrowdManager, HandleNavMeshFullRebuild));
+
+        NavigationMesh* navMesh = GetScene()->GetDerivedComponent<NavigationMesh>();
+        if (navMesh)
+        {
+            navigationMesh_ = navMesh;
+            navigationMeshId_ = navMesh->GetID();
+            CreateCrowd(false);
+        }
+        else
+            LOGERROR("CrowdManager requires an existing navigation mesh");
+    }
+}
+
 void CrowdManager::Update(float delta)
 {
     if (!crowd_ || !navigationMesh_)
@@ -418,23 +453,6 @@ void CrowdManager::HandleNavMeshFullRebuild(StringHash eventType, VariantMap& ev
 
     // The mesh being rebuilt may not have existed before
     SetNavigationMesh(static_cast<NavigationMesh*>(eventData[P_MESH].GetPtr()));
-}
-
-void CrowdManager::OnNodeSet(Node* node)
-{
-    // Subscribe to the scene subsystem update, which will trigger the crowd update step, and grab a reference
-    // to the scene's NavigationMesh
-    if (node)
-    {
-        SubscribeToEvent(node, E_SCENESUBSYSTEMUPDATE, HANDLER(CrowdManager, HandleSceneSubsystemUpdate));
-        SubscribeToEvent(node, E_NAVIGATION_MESH_REBUILT, HANDLER(CrowdManager, HandleNavMeshFullRebuild));
-
-        NavigationMesh* mesh = GetScene()->GetDerivedComponent<NavigationMesh>();
-        if (mesh)
-            SetNavigationMesh(mesh);
-        else
-            LOGERROR("CrowdManager requires an existing navigation mesh");
-    }
 }
 
 }

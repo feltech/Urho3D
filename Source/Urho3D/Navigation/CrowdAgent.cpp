@@ -606,7 +606,7 @@ void CrowdAgent::OnMarkedDirty(Node* node)
 
 const dtCrowdAgent* CrowdAgent::GetDetourCrowdAgent() const
 {
-    return IsInCrowd() ? crowdManager_->GetCrowdAgent(agentCrowdId_) : 0;
+    return IsInCrowd() ? crowdManager_->GetDetourCrowdAgent(agentCrowdId_) : 0;
 }
 
 }
